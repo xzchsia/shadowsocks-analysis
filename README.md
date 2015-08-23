@@ -1,5 +1,9 @@
 # shadowsocks源码分析
 
+*此份代码仅用作学术交流用途，其他行为带来的后果本人概不负责*
+
+*This copy of code is for study of python only*
+
 ## 项目结构：
 ###### 1、asyndns.py 用于处理dns请求
 ###### 2、common.py
