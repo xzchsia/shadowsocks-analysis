@@ -1,31 +1,16 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+'''
+实现tcp的转达，用在远程端中使远程和dest连接
+'''
 
-# Copyright (c) 2014 clowwindy
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
 
 from __future__ import absolute_import, division, print_function, \
     with_statement
 
 import time
 import socket
+# 处理Error Number的package
 import errno
 import struct
 import logging
@@ -41,6 +26,7 @@ TIMEOUTS_CLEAN_SIZE = 512
 # we check timeouts every TIMEOUT_PRECISION seconds
 TIMEOUT_PRECISION = 4
 
+# fast open 连接消息内容，在_handle_stage_connecting方法内
 MSG_FASTOPEN = 0x20000000
 
 # SOCKS CMD defination
@@ -85,6 +71,34 @@ CMD_UDP_ASSOCIATE = 3
 # stage 4 still connecting, more data from local received
 # stage 5 remote connected, piping local and remote
 
+
+# TCP转发能在local和server端进行部署，用"is_local=True"进行区分两者
+# 对于每一个打开的端口，能进行一个tcp转发，对于每一个连接，能进行一个tcp转发处理该连接
+# 
+# 对于每一个开放端口：有2个套接字：
+# local: 连接到客户端  remote: 连接到远程服务器
+# 对于每一个处理函数：有2个流：
+# 上游：客户端->服务端（读写）
+# 下游：服务端->客户端（读写）
+# 
+# 对每一个处理函数，由以下几个阶段组成：
+# ss-local：
+# 0： 本地的socks端口向本地端say hello
+# 1： 本地socks端口收到dns请求，并向服务端查询dns with udp
+# 2： 本地端收到udp
+# 3： 返回dns结果，连接到服务端
+# 4： 仍然保持连接，本地端继续接收服务端的数据
+# 5： 连接到服务端，建立通信通道
+# 
+# ss-server：
+# 0： 无
+# 1： 本地socks端口收到dns请求，并向服务端查询dns
+# 2： 返回dns结果，连接到境外网站（例如google.com）
+# 3： 仍然保持连接，服务端端继续接收客户端的数据
+# 4： 连接到客户端，建立通信通道
+
+
+# 状态机
 STAGE_INIT = 0
 STAGE_ADDR = 1
 STAGE_UDP_ASSOC = 2
@@ -94,15 +108,18 @@ STAGE_STREAM = 5
 STAGE_DESTROYED = -1
 
 # stream direction
-STREAM_UP = 0
-STREAM_DOWN = 1
+# 数据流方向
+STREAM_UP = 0    # 上游：客户端->服务端
+STREAM_DOWN = 1    # 下游：服务端->客户端
 
 # stream wait status, indicating it's waiting for reading, etc
+# 流的状态
 WAIT_STATUS_INIT = 0
 WAIT_STATUS_READING = 1
 WAIT_STATUS_WRITING = 2
 WAIT_STATUS_READWRITING = WAIT_STATUS_READING | WAIT_STATUS_WRITING
 
+# 缓冲区
 BUF_SIZE = 32 * 1024
 
 
@@ -117,6 +134,7 @@ class TCPRelayHandler(object):
         self._config = config
         self._dns_resolver = dns_resolver
         self._is_local = is_local
+        # 初始化
         self._stage = STAGE_INIT
         self._encryptor = encrypt.Encryptor(config['password'],
                                             config['method'])
@@ -128,18 +146,25 @@ class TCPRelayHandler(object):
         self._remote_address = None
         if is_local:
             self._chosen_server = self._get_a_server()
+        # 指定一个file描述符
         fd_to_handlers[local_sock.fileno()] = self
+        # 非阻塞
         local_sock.setblocking(False)
+        # TCP_NODELAY选项禁止Nagle算法。
+        # Nagle算法通过将未确认的数据存入缓冲区直到蓄足一个包一起发送的方法，来减少主机发送的零碎小数据包的数目。
         local_sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+        # loop的定义在哪里，怎么就有一个add方法？
         loop.add(local_sock, eventloop.POLL_IN | eventloop.POLL_ERR)
+        
         self.last_activity = 0
         self._update_activity()
 
     def __hash__(self):
         # default __hash__ is id / 16
-        # we want to eliminate collisions
+        # we want to eliminate collisions（消除碰撞）
         return id(self)
 
+    # 对于类的方法，装饰器起作用返回一个调用。@property装饰器就是负责把一个方法变成属性调用
     @property
     def remote_address(self):
         return self._remote_address
@@ -147,6 +172,7 @@ class TCPRelayHandler(object):
     def _get_a_server(self):
         server = self._config['server']
         server_port = self._config['server_port']
+        # 随机挑选一个服务端
         if type(server_port) == list:
             server_port = random.choice(server_port)
         logging.debug('chosen server: %s:%d', server, server_port)
@@ -156,13 +182,16 @@ class TCPRelayHandler(object):
     def _update_activity(self):
         # tell the TCP Relay we have activities recently
         # else it will think we are inactive and timed out
+        # 告诉TCP转发器：“最近有活跃的链接”，否则超时
         self._server.update_activity(self)
 
     def _update_stream(self, stream, status):
         # update a stream to a new waiting status
-
+        # 更新流：进入新的等待状态
         # check if status is changed
         # only update if dirty
+        # 检查状态是否被改变，只在dirty时候更新
+        # 不太理解。。
         dirty = False
         if stream == STREAM_DOWN:
             if self._downstream_status != status:
@@ -192,6 +221,7 @@ class TCPRelayHandler(object):
         # write data to sock
         # if only some of the data are written, put remaining in the buffer
         # and update the stream to wait for writing
+        # 写入数据到套接字，如果只有部分数据被写入，继续写入剩下的数据到缓冲区，并更新流方向为‘等待’
         if not data or not sock:
             return False
         uncomplete = False
@@ -199,6 +229,7 @@ class TCPRelayHandler(object):
             l = len(data)
             s = sock.send(data)
             if s < l:
+                # 返回list的切片，应该不是浅复制
                 data = data[s:]
                 uncomplete = True
         except (OSError, IOError) as e:
@@ -208,32 +239,47 @@ class TCPRelayHandler(object):
                 uncomplete = True
             else:
                 logging.error(e)
+                # 哆嗦模式
                 if self._config['verbose']:
                     traceback.print_exc()
+                # 断开连接
                 self.destroy()
+                # 尚未发送完毕
                 return False
+        # 尚未完成发送数据
         if uncomplete:
             if sock == self._local_sock:
+                # 暂存数据，使用append追加
                 self._data_to_write_to_local.append(data)
+                # 更新流的状态：等待写入，方向为‘服务端->本地’
                 self._update_stream(STREAM_DOWN, WAIT_STATUS_WRITING)
             elif sock == self._remote_sock:
+                # 跟上面一样的方法，追加数据，修改stream状态。
                 self._data_to_write_to_remote.append(data)
+                # 方向‘本地->服务端’
                 self._update_stream(STREAM_UP, WAIT_STATUS_WRITING)
             else:
                 logging.error('write_all_to_sock:unknown socket')
+        # 已经完成发送数据
         else:
             if sock == self._local_sock:
+                # 修改流的状态为等待读，方向为‘服务端->本地’
                 self._update_stream(STREAM_DOWN, WAIT_STATUS_READING)
             elif sock == self._remote_sock:
+                # 方向为‘本地->服务端’
                 self._update_stream(STREAM_UP, WAIT_STATUS_READING)
             else:
                 logging.error('write_all_to_sock:unknown socket')
+        # 函数执行完毕，不一定说明数据发送完毕，return true
         return True
 
+    # 连接stage的处理，即对fast_open的处理
     def _handle_stage_connecting(self, data):
+        # 如果是本地端，加密数据
         if self._is_local:
             data = self._encryptor.encrypt(data)
         self._data_to_write_to_remote.append(data)
+        # 若本地端设置了fast_open却没有fast_open连接
         if self._is_local and not self._fastopen_connected and \
                 self._config['fast_open']:
             # for sslocal and fastopen, we basically wait for data and use
@@ -245,20 +291,27 @@ class TCPRelayHandler(object):
                     self._create_remote_socket(self._chosen_server[0],
                                                self._chosen_server[1])
                 self._loop.add(remote_sock, eventloop.POLL_ERR)
+                # 发送二进制流
                 data = b''.join(self._data_to_write_to_local)
                 l = len(data)
+                # 发送给服务端
                 s = remote_sock.sendto(data, MSG_FASTOPEN, self._chosen_server)
+                # 若发送尚未完成，转入读写状态
                 if s < l:
                     data = data[s:]
                     self._data_to_write_to_local = [data]
                     self._update_stream(STREAM_UP, WAIT_STATUS_READWRITING)
+                # 发送完毕，转入读状态
                 else:
                     self._data_to_write_to_local = []
                     self._update_stream(STREAM_UP, WAIT_STATUS_READING)
                     self._stage = STAGE_STREAM
             except (OSError, IOError) as e:
+                # EINPROGRESS错误,表示连接操作正在进行中,但是仍未完成,常见于非阻塞的socket连接中
+                # stream流状态更新为读写
                 if eventloop.errno_from_exception(e) == errno.EINPROGRESS:
                     self._update_stream(STREAM_UP, WAIT_STATUS_READWRITING)
+                # ENOTCONN指定的socket是一个未连接成功的socket
                 elif eventloop.errno_from_exception(e) == errno.ENOTCONN:
                     logging.error('fast open not supported on this OS')
                     self._config['fast_open'] = False
@@ -268,26 +321,31 @@ class TCPRelayHandler(object):
                     if self._config['verbose']:
                         traceback.print_exc()
                     self.destroy()
-
+                    
+    # dns远端解析stage的处理函数
     def _handle_stage_addr(self, data):
         try:
             if self._is_local:
                 cmd = common.ord(data[1])
                 if cmd == CMD_UDP_ASSOCIATE:
                     logging.debug('UDP associate')
+                    # 打包header，对v6和v4地址判断
                     if self._local_sock.family == socket.AF_INET6:
                         header = b'\x05\x00\x00\x04'
                     else:
                         header = b'\x05\x00\x00\x01'
-                    addr, port = self._local_sock.getsockname()[:2]
+                    addr, port = self._local_sock.getsockname()[:2]    # 应该是返回一个元组吧，怎么返回一个列表，含有两个元素
                     addr_to_send = socket.inet_pton(self._local_sock.family,
                                                     addr)
                     port_to_send = struct.pack('>H', port)
+                    # 不太理解数据发送到哪里》是本地吗，还是远端？
                     self._write_to_sock(header + addr_to_send + port_to_send,
                                         self._local_sock)
                     self._stage = STAGE_UDP_ASSOC
                     # just wait for the client to disconnect
+                    # 返回，只需等待客户端断开。（应该是等待socks端口断开）
                     return
+                # 连接命令，马上进行连接查询dns
                 elif cmd == CMD_CONNECT:
                     # just trim VER CMD RSV
                     data = data[3:]
@@ -295,6 +353,7 @@ class TCPRelayHandler(object):
                     logging.error('unknown command %d', cmd)
                     self.destroy()
                     return
+            # parse_header是common.py中的解开header函数
             header_result = parse_header(data)
             if header_result is None:
                 raise Exception('can not parse header')
@@ -302,19 +361,22 @@ class TCPRelayHandler(object):
             logging.info('connecting %s:%d' % (common.to_str(remote_addr),
                                                remote_port))
             self._remote_address = (remote_addr, remote_port)
-            # pause reading
+            # 暂停读取，改为等待向上游写入。
             self._update_stream(STREAM_UP, WAIT_STATUS_WRITING)
+            # 状态机转为查询dns
             self._stage = STAGE_DNS
             if self._is_local:
-                # forward address to remote
+                # 我觉得是给本地的socks：1080一个简单的答复吧。
                 self._write_to_sock((b'\x05\x00\x00\x01'
                                      b'\x00\x00\x00\x00\x10\x10'),
                                     self._local_sock)
+                # 加密内容
                 data_to_send = self._encryptor.encrypt(data)
+                # 向服务端端查询
                 self._data_to_write_to_remote.append(data_to_send)
                 # notice here may go into _handle_dns_resolved directly
-
-                # 这里调用dns_server的resolve，dns_server可以作为一个可移植的模块了
+                # 这里调用DNSResolver类的resolve方法
+                # 这里跳转得有点多。。绕了一圈
                 self._dns_resolver.resolve(self._chosen_server[0],
                                            self._handle_dns_resolved)
             else:
@@ -334,7 +396,7 @@ class TCPRelayHandler(object):
         addrs = socket.getaddrinfo(ip, port, 0, socket.SOCK_STREAM,
                                    socket.SOL_TCP)
         if len(addrs) == 0:
-            raise Exception("getaddrinfo failed for %s:%d" % (ip,  port))
+            raise Exception("getaddrinfo failed for %s:%d" % (ip, port))
         af, socktype, proto, canonname, sa = addrs[0]
         remote_sock = socket.socket(af, socktype, proto)
         self._remote_sock = remote_sock
@@ -343,6 +405,7 @@ class TCPRelayHandler(object):
         remote_sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         return remote_sock
 
+    # 处理dns解析结果
     def _handle_dns_resolved(self, result, error):
         if error:
             logging.error(error)
@@ -352,6 +415,7 @@ class TCPRelayHandler(object):
             ip = result[1]
             if ip:
                 try:
+                    # 状态机转为：连接中
                     self._stage = STAGE_CONNECTING
                     remote_addr = ip
                     if self._is_local:
@@ -531,7 +595,7 @@ class TCPRelayHandler(object):
             return
         self._stage = STAGE_DESTROYED
         if self._remote_address:
-            logging.debug('destroy: %s:%d' %
+            logging.debug('destroy: %s:%d' % 
                           self._remote_address)
         else:
             logging.debug('destroy')
@@ -562,10 +626,10 @@ class TCPRelay(object):
         self._last_time = time.time()
 
         self._timeout = config['timeout']
-        self._timeouts = []  # a list for all the handlers
+        self._timeouts = []    # a list for all the handlers
         # we trim the timeouts once a while
-        self._timeout_offset = 0   # last checked position for timeout
-        self._handler_to_timeouts = {}  # key: handler value: index in timeouts
+        self._timeout_offset = 0    # last checked position for timeout
+        self._handler_to_timeouts = {}    # key: handler value: index in timeouts
 
         if is_local:
             listen_addr = config['local_address']
@@ -579,7 +643,7 @@ class TCPRelay(object):
         addrs = socket.getaddrinfo(listen_addr, listen_port, 0,
                                    socket.SOCK_STREAM, socket.SOL_TCP)
         if len(addrs) == 0:
-            raise Exception("can't get addrinfo for %s:%d" %
+            raise Exception("can't get addrinfo for %s:%d" % 
                             (listen_addr, listen_port))
 
         af, socktype, proto, canonname, sa = addrs[0]
@@ -649,12 +713,12 @@ class TCPRelay(object):
                         break
                     else:
                         if handler.remote_address:
-                            logging.warn('timed out: %s:%d' %
+                            logging.warn('timed out: %s:%d' % 
                                          handler.remote_address)
                         else:
                             logging.warn('timed out')
                         handler.destroy()
-                        self._timeouts[pos] = None  # free memory
+                        self._timeouts[pos] = None    # free memory
                         pos += 1
                 else:
                     pos += 1
@@ -717,7 +781,7 @@ class TCPRelay(object):
             if not self._fd_to_handlers:
                 self._eventloop.remove_handler(self._handle_events)
 
-    def close(self, next_tick=False):
+    def close(self, next_tick = False):
         self._closed = True
         if not next_tick:
             self._server_socket.close()

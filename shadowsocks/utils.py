@@ -1,25 +1,9 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-# Copyright (c) 2014 clowwindy
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+'''
+代码质量相当的高，感觉都能达到重用的级别。而且由于作者设计的思想是，一个配置文件，同一段程序，在本地和远程通用
+所以其中的代码，常常能够达到一个函数，在本地和服务器有不同的功能这样的效果。
+'''
 
 from __future__ import absolute_import, division, print_function, \
     with_statement
@@ -62,6 +46,7 @@ def find_config():
     config_path = 'config.json'
     if os.path.exists(config_path):
         return config_path
+    # __file__是当前文件的路径，合理使用可以提高程序判断位置的方便性
     config_path = os.path.join(os.path.dirname(__file__), '../', 'config.json')
     if os.path.exists(config_path):
         return config_path
@@ -72,7 +57,7 @@ def check_config(config):
     if config.get('local_address', '') in [b'0.0.0.0']:
         logging.warn('warning: local set to listen on 0.0.0.0, it\'s not safe')
     if config.get('server', '') in [b'127.0.0.1', b'localhost']:
-        logging.warn('warning: server set to listen on %s:%s, are you sure?' %
+        logging.warn('warning: server set to listen on %s:%s, are you sure?' % 
                      (to_str(config['server']), config['server_port']))
     if (config.get('method', '') or '').lower() == b'table':
         logging.warn('warning: table is not safe; please use a safer cipher, '
@@ -81,10 +66,10 @@ def check_config(config):
         logging.warn('warning: RC4 is not safe; please use a safer cipher, '
                      'like AES-256-CFB')
     if config.get('timeout', 300) < 100:
-        logging.warn('warning: your timeout %d seems too short' %
+        logging.warn('warning: your timeout %d seems too short' % 
                      int(config.get('timeout')))
     if config.get('timeout', 300) > 600:
-        logging.warn('warning: your timeout %d seems too long' %
+        logging.warn('warning: your timeout %d seems too long' % 
                      int(config.get('timeout')))
     if config.get('password') in [b'mypassword']:
         logging.error('DON\'T USE DEFAULT PASSWORD! Please change it in your '
@@ -93,8 +78,8 @@ def check_config(config):
 
 
 def get_config(is_local):
-    logging.basicConfig(level=logging.INFO,
-                        format='%(levelname)-s: %(message)s')
+    logging.basicConfig(level = logging.INFO,
+                        format = '%(levelname)-s: %(message)s')
     if is_local:
         shortopts = 'hd:s:b:p:k:l:m:c:t:vq'
         longopts = ['help', 'fast-open', 'pid-file=', 'log-file=']
@@ -103,24 +88,34 @@ def get_config(is_local):
         longopts = ['help', 'fast-open', 'pid-file=', 'log-file=', 'workers=']
     try:
         config_path = find_config()
+        # getopt我猜是从系统接口获得当前的运行形参
+        # getopt这个函数 就是用来抽取 sys.argv 获得的用户输入来确定执行步骤。
+        # 注意：定义命令行参数时，要先定义带'-'选项的参数，再定义没有‘-’的参数
         optlist, args = getopt.getopt(sys.argv[1:], shortopts, longopts)
+        # 首先判断是否加载config.json
         for key, value in optlist:
             if key == '-c':
                 config_path = value
 
         if config_path:
             logging.info('loading config from %s' % config_path)
+            # 经典的with带有异常判断的打开方式
+            # 为啥是b作为二进制打开：毕竟需要decode为utf8
             with open(config_path, 'rb') as f:
                 try:
+                    # 使用json库
+                    # json介绍：http://www.cnblogs.com/coser/archive/2011/12/14/2287739.html
                     config = json.loads(f.read().decode('utf8'),
-                                        object_hook=_decode_dict)
+                                        object_hook = _decode_dict)
                 except ValueError as e:
                     logging.error('found an error in config.json: %s',
                                   e.message)
                     sys.exit(1)
         else:
+            # 如果没有加载config.json则新建一个字典。
             config = {}
-
+        
+        # 这句话貌似重复了。
         optlist, args = getopt.getopt(sys.argv[1:], shortopts, longopts)
         v_count = 0
         for key, value in optlist:
@@ -162,7 +157,7 @@ def get_config(is_local):
                 v_count -= 1
                 config['verbose'] = v_count
     except getopt.GetoptError as e:
-        print(e, file=sys.stderr)
+        print(e, file = sys.stderr)
         print_help(is_local)
         sys.exit(2)
 
@@ -221,9 +216,9 @@ def get_config(is_local):
         level = logging.ERROR
     else:
         level = logging.INFO
-    logging.basicConfig(level=level,
-                        format='%(asctime)s %(levelname)-8s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level = level,
+                        format = '%(asctime)s %(levelname)-8s %(message)s',
+                        datefmt = '%Y-%m-%d %H:%M:%S')
 
     check_config(config)
 
@@ -297,7 +292,7 @@ General options:
 Online help: <https://github.com/clowwindy/shadowsocks>
 ''')
 
-
+# 逐个解析list为utf8，递归
 def _decode_list(data):
     rv = []
     for item in data:
@@ -310,7 +305,7 @@ def _decode_list(data):
         rv.append(item)
     return rv
 
-
+# 逐个解析dict为utf8，递归
 def _decode_dict(data):
     rv = {}
     for key, value in data.items():

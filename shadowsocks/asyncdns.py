@@ -1,25 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# Copyright (c) 2014 clowwindy
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+'''
+dns处理
+对dns协议并不熟悉，建议马上youtube查看
+'''
 
 from __future__ import absolute_import, division, print_function, \
     with_statement
@@ -31,7 +15,7 @@ import struct
 import re
 import logging
 
-import common, lru_cache, eventloop
+from shadowsocks import common, lru_cache, eventloop
 
 
 CACHE_SWEEP_INTERVAL = 30
@@ -76,7 +60,6 @@ common.patch_socket()
 
 # header = struct.pack('!HBBHHHH', request_id, 1, 0, 1, 0, 0, 0)
 
-# 一个字节=8位=两个16进制数
 
 QTYPE_ANY = 255
 QTYPE_A = 1
@@ -85,7 +68,7 @@ QTYPE_CNAME = 5
 QTYPE_NS = 2
 QCLASS_IN = 1
 
-
+# 构造地址，返回一个二进制流
 def build_address(address):
     address = address.strip(b'.')
     labels = address.split(b'.')
@@ -99,7 +82,7 @@ def build_address(address):
     results.append(b'\0')
     return b''.join(results)
 
-
+# 构造一个请求。
 def build_request(address, qtype, request_id):
     header = struct.pack('!HBBHHHH', request_id, 1, 0, 1, 0, 0, 0)
     addr = build_address(address)
@@ -161,7 +144,7 @@ def parse_name(data, offset):
 #    /                     RDATA                     /
 #    /                                               /
 #    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-def parse_record(data, offset, question=False):
+def parse_record(data, offset, question = False):
     nlen, name = parse_name(data, offset)
     if not question:
         record_type, record_class, record_ttl, record_rdlength = struct.unpack(
@@ -277,8 +260,8 @@ def is_valid_hostname(hostname):
 class DNSResponse(object):
     def __init__(self):
         self.hostname = None
-        self.questions = []  # each: (addr, type, class)
-        self.answers = []  # each: (addr, type, class)
+        self.questions = []    # each: (addr, type, class)
+        self.answers = []    # each: (addr, type, class)
 
     def __str__(self):
         return '%s: %s' % (self.hostname, str(self.answers))
@@ -297,7 +280,7 @@ class DNSResolver(object):
         self._hostname_status = {}
         self._hostname_to_cb = {}
         self._cb_to_hostname = {}
-        self._cache = lru_cache.LRUCache(timeout=300)
+        self._cache = lru_cache.LRUCache(timeout = 300)
         self._last_time = time.time()
         self._sock = None
         self._servers = None
@@ -349,7 +332,7 @@ class DNSResolver(object):
         except IOError:
             self._hosts['localhost'] = '127.0.0.1'
 
-    def add_to_loop(self, loop, ref=False):
+    def add_to_loop(self, loop, ref = False):
         if self._loop:
             raise Exception('already add to loop')
         self._loop = loop
@@ -361,10 +344,10 @@ class DNSResolver(object):
         # 把自己的socket加到loop里面
         loop.add(self._sock, eventloop.POLL_IN)
         # 这里加入了handler，eventloop检测到socket有“动静”时调用self.handle_events
-        loop.add_handler(self.handle_events, ref=ref)
+        loop.add_handler(self.handle_events, ref = ref)
 
     # 这里触发回调
-    def _call_callback(self, hostname, ip, error=None):
+    def _call_callback(self, hostname, ip, error = None):
         # 这里取出我们在请求的同时放进字典里面的callback函数
         # cb = callback
         callbacks = self._hostname_to_cb.get(hostname, [])
@@ -508,7 +491,7 @@ class DNSResolver(object):
 def test():
     dns_resolver = DNSResolver()
     loop = eventloop.EventLoop()
-    dns_resolver.add_to_loop(loop, ref=True)
+    dns_resolver.add_to_loop(loop, ref = True)
 
     global counter
     counter = 0

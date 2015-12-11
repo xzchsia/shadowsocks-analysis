@@ -1,21 +1,25 @@
 # shadowsocks源码分析
 
+[![Join the chat at https://gitter.im/lao605/shadowsocks_analysis](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/lao605/shadowsocks_analysis?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+This work is licensed under a [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-nc-sa/4.0/").
+
 *此份代码仅用作学术交流用途，其他行为带来的后果本人概不负责*
 
 *This copy of code is for study of python only*
 
 ## 项目结构：
-###### 1、asyndns.py 用于处理dns请求
+###### 1、asyncdns.py 用于处理dns请求
 ###### 2、common.py
-###### 3、daemon.py，提供daemon运行机制
-###### 4、encrypt，处理shadowsocks协议的加密解密
-###### 5、eventloop，事件循环，使用select、poll、epoll、kequeue实现IO复用，作者讲三种底层实现包装成一个类Eventloop
-###### 6、local，在本地运行的程序
-###### 7、lru_cache.py，作者实现的一个基于LRU的缓存
-###### 8、server.py，在远程运行的程序
-###### 9、tcprelay，实现tcp的转达，用在远程端中使远程和dest连接
-###### 10、udprelay，实现udp的转达，用于local端处理local和客户端的socks5协议通信，用于local端和远程端shadowsocks协议的通信；用于远程端与local端shadowsocks协议的通信，用于远程端和dest端的通信
-###### 11、utils.py
+###### 3、daemon.py，提供daemon(守护进程)运行机制
+###### 4、encrypt.py，处理Shadowsocks协议的加密解密
+###### 5、eventloop.py，事件循环，使用select、poll、epoll、kequeue实现IO复用，作者将三种底层实现包装成一个类Eventloop
+###### 6、local.py讲，在本地(客户端)运行的程序
+###### 7、lru_cache.py，作者实现的一个基于LRU的Key-Value缓存
+###### 8、server.py，在远程服务端运行的程序
+###### 9、tcprelay.py，实现tcp的转达，用在远程端中使远程和dest连接
+###### 10、udprelay.py，实现udp的转达，用于local端处理local和 客户器端的SOCKS5协议通信，用于local端和远程端Shadowsocks协议的通信；用于远程端与local端Shadowsocks协议的通信，用于远程端和dest端(destination)的通信
+###### 11、utils.py 工具函数
 
 > 代码质量相当的高，感觉都能达到重用的级别。而且由于作者设计的思想是，一个配置文件，同一段程序，在本地和远程通用，所以其中的代码，常常能够达到一个函数，在本地和服务器有不同的功能这样的效果。
 
@@ -228,20 +232,5 @@ self._last_visits = collections.deque()
 ###### 3、因为最早访问时间访问过的键之后可能又访问了，所以要_keys_to_last_time
 ###### 4、找出那些没被访问过的，然后删除
 
-===============================================================
-##### 学到的其他东西：
-###### 1、__future__
-###### 2、json.loads(f.read().decode('utf8'),object_hook=_decode_dict)
-###### 3、python内置的logging也可作大规模使用
-###### 4、把我理解层面阔伸到协议层面，学到怎么构建一个协议（协议的设计还要学习）
-###### 5、网络编程和信息安全息息相关
-###### 6、这个网络编程的学习路线挺不错的：爬虫-\>XX软件。不知道下一步怎么加深
-
-一些问题：
-###### 1、如何做到线程安全？
-###### 2、大量对变量是否存在的检查是为了什么？
-###### 3、FSM的思想怎么应用到网络编程？
-###### 4、防火墙到底是怎么工作的？（其实这个问题我自己觉得问的挺逗的。。）
-###### 5、linux的内核异步IO怎么调用（操作系统）
 
 

@@ -1,25 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-# Copyright (c) 2014 clowwindy
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+'''
+一个基于LRU的Key-Value缓存
+'''
 
 from __future__ import absolute_import, division, print_function, \
     with_statement
@@ -36,20 +19,18 @@ import time
 # TODO: if timeout or QPS is too large, then this cache is not very efficient,
 #       as sweep() causes long pause
 
-# 作者对于每个步骤的耗费都有考虑
-
 # 用到了容器基类
 class LRUCache(collections.MutableMapping):
     """This class is not thread safe"""
 
-    def __init__(self, timeout=60, close_callback=None, *args, **kwargs):
+    def __init__(self, timeout = 60, close_callback = None, *args, **kwargs):
         self.timeout = timeout
         self.close_callback = close_callback
         self._store = {}
         self._time_to_keys = collections.defaultdict(list)
         self._keys_to_last_time = {}
         self._last_visits = collections.deque()
-        self.update(dict(*args, **kwargs))  # use the free update to set keys
+        self.update(dict(*args, **kwargs))    # use the free update to set keys
 
     def __getitem__(self, key):
         # O(1)
@@ -114,7 +95,7 @@ class LRUCache(collections.MutableMapping):
 
 
 def test():
-    c = LRUCache(timeout=0.3)
+    c = LRUCache(timeout = 0.3)
 
     c['a'] = 1
     assert c['a'] == 1
