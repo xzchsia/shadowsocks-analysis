@@ -1,4 +1,6 @@
-# shadowsocks源码分析
+# shadowsocks 2.6 源码分析
+
+目的：阅读clowwindy的旧版本源码，体验基本的网络编程思想
 
 [![Join the chat at https://gitter.im/lao605/shadowsocks_analysis](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/lao605/shadowsocks_analysis?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
