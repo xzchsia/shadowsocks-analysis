@@ -332,9 +332,15 @@ class DNSResolver(object):
         self._request_id = 1
         # 以下四个均为字典类型
         self._hosts = {}
+        # 查询状态？
         self._hostname_status = {}
-        # hostname to callback 和 callback to hostname有什么区别
+        # hostname to callback 和 callback to hostname有什么区别>>>>参考本文件末尾的def resolve函数。
+        # hostname to callback就是每一个hostname对应一个回调函数
+        # 若多个函数对应相同的hostname，只需向远端发起一次dns请求，减少重复查询
+        # 删除重复键值(key=hostname,value=callback)的操作不需要人为干预，字典完成这个功能（key不允许重复）
         self._hostname_to_cb = {}
+        # callback to hostname就是一个回调函数对应一个hostname
+        # 一个hostname有可能是由多个进程调用查询dns的。因此回朔时候也要逐个返回。
         self._cb_to_hostname = {}
         # todo : 阅lrucache的源码
         self._cache = lru_cache.LRUCache(timeout = 300)
@@ -411,15 +417,16 @@ class DNSResolver(object):
         # 这里加入了handler，eventloop检测到socket有“动静”时调用self.handle_events
         loop.add_handler(self.handle_events, ref = ref)
 
-    # 这里触发回调
-    # 回调是什么？？醉了
+    # 这里触发回调：查找某个hostname对应的回调函数
+    # 回调是上一级函数调用查询dns的，因此需要回朔。
+    # 看了好多次，扔看不懂什么工作原理。。认为它字典是唯一的会漏掉某些键值。
     def _call_callback(self, hostname, ip, error = None):
         # 这里取出我们在请求的同时放进字典里面的callback函数
         # cb = callback
-        callbacks = self._hostname_to_cb.get(hostname, [])
+        callbacks = self._hostname_to_cb.get(hostname, [])    # 寻找一个键为hostname的一个callback函数，实际上只能返回一个，而不是callbacks。
         
         for callback in callbacks:
-            # 判断hostname是否已经被回调，已回调则删掉等待回调的字典对应键对
+            # 判断hostname是否已经被回调，已回调则删掉等待回调的字典对应键对。避免重复查询dns
             if callback in self._cb_to_hostname:
                 del self._cb_to_hostname[callback]
             # 注册回调
@@ -429,7 +436,7 @@ class DNSResolver(object):
             else:
                 callback((hostname, None),
                          Exception('unknown hostname %s' % hostname))
-        # 回调完，删除键值 hostname to callback
+        # 回调完，删除键值 hostname to callback 包括反过来。
         if hostname in self._hostname_to_cb:
             del self._hostname_to_cb[hostname]
         if hostname in self._hostname_status:
@@ -546,12 +553,14 @@ class DNSResolver(object):
             logging.debug('hit cache: %s', hostname)
             ip = self._cache[hostname]
             callback((hostname, ip), None)
+        # 以上条件都不满足，开始进行解析dns
         else:
             # 检查hostname的有效性
             if not is_valid_hostname(hostname):
                 callback(None, Exception('invalid hostname: %s' % hostname))
                 return
             arr = self._hostname_to_cb.get(hostname, None)
+            # 在host_to_callback中检查是否有记录
             if not arr:
                 self._hostname_status[hostname] = STATUS_IPV4
                 # 请求报文发出去
@@ -560,11 +569,13 @@ class DNSResolver(object):
                 # 要hostname因为这个socket可以发出去很多不同hostname的解析请求
                 self._hostname_to_cb[hostname] = [callback]
                 self._cb_to_hostname[callback] = hostname
+            # 回调中没有记录，则追加回调
             else:
                 arr.append(callback)
                 # TODO send again only if waited too long
                 self._send_req(hostname, QTYPE_A)
 
+    # 析构函数
     def close(self):
         if self._sock:
             self._sock.close()
