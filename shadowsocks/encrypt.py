@@ -131,8 +131,7 @@ class Encryptor(object):
         return self.decipher.update(buf)
 
 # 加密解密同在一个函数
-# 0解码，1加密
-def encrypt_all(password, method, op, data):
+def encrypt_all(password, method, op, data):    # 0解码，1加密
     result = []
     method = method.lower()
     (key_len, iv_len, m) = method_supported[method]

@@ -7,12 +7,23 @@
 # SOCKS5是基于UDP的，所以有这个UDPrelay，用来返回给browser的报文??
 # sock5: RFC 1928
 # SOCKS5用于browser和proxy协商用
+
 # SOCKS5 UDP Request
 # +----+------+------+----------+----------+----------+
 # |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
 # +----+------+------+----------+----------+----------+
 # | 2  |  1   |  1   | Variable |    2     | Variable |
 # +----+------+------+----------+----------+----------+
+# The fields in the UDP request header are:
+#  o RSV Reserved X’0000’
+#  o FRAG Current fragment number
+#  o ATYP address type of following addresses:
+#      o IP V4 address: X’01’
+#      o DOMAINNAME: X’03’
+#      o IP V6 address: X’04’
+#  o DST.ADDR desired destination address
+#  o DST.PORT desired destination port
+#  o DATA user data
 
 # SOCKS5 UDP Response
 # +----+------+------+----------+----------+----------+
@@ -136,30 +147,32 @@ class UDPRelay(object):
     # 就只有可能是对方主动发送过来的，自己发送出去的udp请求要新建一个socket用来处理之后的请求
     def _handle_server(self):
         server = self._server_socket
+        # r_addr是发送者的地址
         data, r_addr = server.recvfrom(BUF_SIZE)
         if not data:
             logging.debug('UDP handle_server: data is empty')
         if self._is_local:
             # 如果是local收到，那就是
+            # ord:输入char返回Ascii
             frag = common.ord(data[2])
-# this is no classic UDP
-# +----+------+------+----------+----------+----------+
-# |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
-# +----+------+------+----------+----------+----------+
-# | 2  |  1   |  1   | Variable |    2     | Variable |
-# +----+------+------+----------+----------+----------+
+            # this is no classic UDP
+            # +----+------+------+----------+----------+----------+
+            # |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            # +----+------+------+----------+----------+----------+
+            # | 2  |  1   |  1   | Variable |    2     | Variable |
+            # +----+------+------+----------+----------+----------+
             if frag != 0:
                 logging.warn('drop a message since frag is not 0')
                 return
             else:
                 data = data[3:]
                 # [3:]之后变成
-# +------+----------+----------+----------+
-# | ATYP | DST.ADDR | DST.PORT |   DATA   |
-# +------+----------+----------+----------+
-# |  1   | Variable |    2     | Variable |
-# +------+----------+----------+----------+
-# 就是shadowsocks那段
+                # +------+----------+----------+----------+
+                # | ATYP | DST.ADDR | DST.PORT |   DATA   |
+                # +------+----------+----------+----------+
+                # |  1   | Variable |    2     | Variable |
+                # +------+----------+----------+----------+
+                # 就是shadowsocks那段
         else:
             # 如果是远程收到
             data = encrypt.encrypt_all(self._password, self._method, 0, data)
