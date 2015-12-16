@@ -5,7 +5,7 @@
 '''
 
 # SOCKS5是基于UDP的，所以有这个UDPrelay，用来返回给browser的报文??
-
+# sock5: RFC 1928
 # SOCKS5用于browser和proxy协商用
 # SOCKS5 UDP Request
 # +----+------+------+----------+----------+----------+
@@ -72,7 +72,7 @@ BUF_SIZE = 65536
 def client_key(a, b, c, d):
     return '%s:%s:%s:%s' % (a, b, c, d)
 
-
+# 我是先读tcprelay.py然后读udprelay.py，可以参考tcprelay的注释
 class UDPRelay(object):
     def __init__(self, config, dns_resolver, is_local):
         self._config = config
@@ -92,10 +92,10 @@ class UDPRelay(object):
         self._method = config['method']
         self._timeout = config['timeout']
         self._is_local = is_local
-        self._cache = lru_cache.LRUCache(timeout=config['timeout'],
-                                         close_callback=self._close_client)
+        self._cache = lru_cache.LRUCache(timeout = config['timeout'],
+                                         close_callback = self._close_client)
         self._client_fd_to_server_addr = \
-            lru_cache.LRUCache(timeout=config['timeout'])
+            lru_cache.LRUCache(timeout = config['timeout'])
         self._eventloop = None
         self._closed = False
         self._last_time = time.time()
@@ -104,7 +104,7 @@ class UDPRelay(object):
         addrs = socket.getaddrinfo(self._listen_addr, self._listen_port, 0,
                                    socket.SOCK_DGRAM, socket.SOL_UDP)
         if len(addrs) == 0:
-            raise Exception("can't get addrinfo for %s:%d" %
+            raise Exception("can't get addrinfo for %s:%d" % 
                             (self._listen_addr, self._listen_port))
         af, socktype, proto, canonname, sa = addrs[0]
         server_socket = socket.socket(af, socktype, proto)
@@ -314,7 +314,7 @@ class UDPRelay(object):
                 sock.close()
             self._eventloop.remove_handler(self._handle_events)
 
-    def close(self, next_tick=False):
+    def close(self, next_tick = False):
         self._closed = True
         if not next_tick:
             self._server_socket.close()

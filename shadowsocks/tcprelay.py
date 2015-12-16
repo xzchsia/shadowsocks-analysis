@@ -119,10 +119,10 @@ WAIT_STATUS_READING = 1
 WAIT_STATUS_WRITING = 2
 WAIT_STATUS_READWRITING = WAIT_STATUS_READING | WAIT_STATUS_WRITING
 
-# 缓冲区
+# 缓冲区（貌似本文件没有用到。。）
 BUF_SIZE = 32 * 1024
 
-
+# 把tcp转发服务函数定义为一个类
 class TCPRelayHandler(object):
     def __init__(self, server, fd_to_handlers, loop, local_sock, config,
                  dns_resolver, is_local):
@@ -134,7 +134,7 @@ class TCPRelayHandler(object):
         self._config = config
         self._dns_resolver = dns_resolver
         self._is_local = is_local
-        # 初始化
+        # 状态机：初始化
         self._stage = STAGE_INIT
         self._encryptor = encrypt.Encryptor(config['password'],
                                             config['method'])
@@ -157,6 +157,7 @@ class TCPRelayHandler(object):
         loop.add(local_sock, eventloop.POLL_IN | eventloop.POLL_ERR)
         
         self.last_activity = 0
+        # 更新为“最近有活跃的链接”，否则超时
         self._update_activity()
 
     def __hash__(self):
@@ -672,7 +673,7 @@ class TCPRelay(object):
         self._timeout = config['timeout']
         self._timeouts = []    # a list for all the handlers
         # we trim the timeouts once a while
-        self._timeout_offset = 0    # last checked position for timeout
+        self._timeout_offset = 0    # last checked position for timeout，用于后面的sweep_timeout函数
         self._handler_to_timeouts = {}    # dict, the key is handler,the value is index in timeouts
 
         if is_local:
@@ -725,43 +726,58 @@ class TCPRelay(object):
         self._eventloop.add(self._server_socket,
                             eventloop.POLL_IN | eventloop.POLL_ERR)
 
+    # 移除服务函数，超时值使用哈希值存放在字典中
     def remove_handler(self, handler):
+        # if not found, returns -1
         index = self._handler_to_timeouts.get(hash(handler), -1)
+        # founded
         if index >= 0:
             # delete is O(n), so we just set it to None
             self._timeouts[index] = None
             del self._handler_to_timeouts[hash(handler)]
 
+    # 更新服务函数状态，设为活跃
+    # 不太理解self._handler_to_timeouts{}这个字典有什么用
     def update_activity(self, handler):
         # set handler to active
         now = int(time.time())
+        # 这里的last_activity是啥子。
+        # 若当前时间比上次事件还早，出错返回
         if now - handler.last_activity < TIMEOUT_PRECISION:
             # thus we can lower timeout modification frequency
             return
+        # 更新时间戳，最近活跃为现在。
         handler.last_activity = now
+        # 把运行过的handle函数写入到字典中
         index = self._handler_to_timeouts.get(hash(handler), -1)
         if index >= 0:
             # delete is O(n), so we just set it to None
             self._timeouts[index] = None
+        # hash参数值为timeout列表的长度
         length = len(self._timeouts)
         self._timeouts.append(handler)
         self._handler_to_timeouts[hash(handler)] = length
-
+    
+    # 清理超时的socket调用destroy()，使用自建的O(1)滑动算法，比最小堆快
     def _sweep_timeout(self):
         # tornado's timeout memory management is more flexible than we need
-        # we just need a sorted last_activity queue and it's faster than heapq
+        # we just need a sorted last_activity queue and it's faster than heapq（最小堆）
         # in fact we can do O(1) insertion/remove so we invent our own
         if self._timeouts:
             logging.log(utils.VERBOSE_LEVEL, 'sweeping timeouts')
             now = time.time()
             length = len(self._timeouts)
             pos = self._timeout_offset
+            # 从timeout_offset到timeouts进行遍历
             while pos < length:
+                # _timeouts[] is a list for all the handlers
                 handler = self._timeouts[pos]
                 if handler:
+                    # 没有超时，不需要清理，退出while循环
                     if now - handler.last_activity < self._timeout:
                         break
                     else:
+                        
                         if handler.remote_address:
                             logging.warn('timed out: %s:%d' % 
                                          handler.remote_address)
@@ -772,22 +788,29 @@ class TCPRelay(object):
                         pos += 1
                 else:
                     pos += 1
+            # TIMEOUTS_CLEAN_SIZE默认是512，由于最大连接是1024
+            # 长度超过队列的一半，需要及时清理。
+            # pos默认是一直往前的，因此offset也是一直增加的，类似于tcp协议的窗口滑动工作原理
             if pos > TIMEOUTS_CLEAN_SIZE and pos > length >> 1:
-                # clean up the timeout queue when it gets larger than half
-                # of the queue
+                # clean up the timeout queue when it gets larger than half of the queue
+                # 类比tcp发送窗口右移。
                 self._timeouts = self._timeouts[pos:]
                 for key in self._handler_to_timeouts:
+                    # 类比发送窗口右移，数字要减pos
                     self._handler_to_timeouts[key] -= pos
                 pos = 0
-            self._timeout_offset = pos
+            self._timeout_offset = pos    # pos=0
 
     # 处理从dest传回到远程的消息
     def _handle_events(self, events):
         # handle events and dispatch to handlers
         for sock, fd, event in events:
             if sock:
+                # log级别是怎么显示出来的，平常都是INFO级别的消息？
                 logging.log(utils.VERBOSE_LEVEL, 'fd %d %s', fd,
                             eventloop.EVENT_NAMES.get(event, event))
+            
+            # 若来自服务端的数据
             if sock == self._server_socket:
                 if event & eventloop.POLL_ERR:
                     # TODO
@@ -796,6 +819,7 @@ class TCPRelay(object):
                     logging.debug('accept')
                     conn = self._server_socket.accept()
                     # 创建一个新的连接，并且新建一个TCPRelayHandler处理
+                    # Handler函数包含解密、dns解析等一系列的操作。
                     TCPRelayHandler(self, self._fd_to_handlers,
                                     self._eventloop, conn[0], self._config,
                                     self._dns_resolver, self._is_local)
@@ -803,11 +827,12 @@ class TCPRelay(object):
                     error_no = eventloop.errno_from_exception(e)
                     if error_no in (errno.EAGAIN, errno.EINPROGRESS,
                                     errno.EWOULDBLOCK):
-                        continue
+                        continue    # 继续进行for循环。
                     else:
                         logging.error(e)
                         if self._config['verbose']:
                             traceback.print_exc()
+            # 来自本地socket（1080端口）的数据
             else:
                 if sock:
                     # 如果是已经accept的连接，就找相对应的handler处理它
@@ -819,18 +844,22 @@ class TCPRelay(object):
                     logging.warn('poll removed fd')
 
         now = time.time()
+        # 超时，清理socket。
         if now - self._last_time > TIMEOUT_PRECISION:
             self._sweep_timeout()
             self._last_time = now
         if self._closed:
             if self._server_socket:
+                # 移除当前的socket文件描述符
                 self._eventloop.remove(self._server_socket)
                 self._server_socket.close()
                 self._server_socket = None
                 logging.info('closed listen port %d', self._listen_port)
+            # 移除服务函数。
             if not self._fd_to_handlers:
                 self._eventloop.remove_handler(self._handle_events)
 
+    # next_tick是什么滴嗒，立即关闭server_socket吗？
     def close(self, next_tick = False):
         self._closed = True
         if not next_tick:
