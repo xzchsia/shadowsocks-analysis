@@ -29,3 +29,8 @@ htmlcov
 
 .DS_Store
 .idea
+
+# Eclipse Pydev project files
+.settings
+.project
+.pydevproject
