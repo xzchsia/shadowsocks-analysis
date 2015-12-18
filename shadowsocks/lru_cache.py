@@ -19,7 +19,15 @@ import time
 # TODO: if timeout or QPS is too large, then this cache is not very efficient,
 #       as sweep() causes long pause
 
-# 用到了容器基类
+# 维基百科的介绍：lru缓存算法
+# Least Recently Used (LRU)
+# Discards the least recently used items first. This algorithm requires keeping track of what was used when, 
+# which is expensive if one wants to make sure the algorithm always discards the least recently used item.
+# General implementations of this technique require keeping "age bits" for cache-lines and 
+# track the "Least Recently Used" cache-line based on age-bits. In such an implementation, 
+# every time a cache-line is used, the age of all other cache-lines changes. 
+
+# 用到了容器基类：易变序列，python3。。。理解为c++中的vector吧！
 class LRUCache(collections.MutableMapping):
     """This class is not thread safe"""
 

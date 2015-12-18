@@ -15,7 +15,7 @@ import logging
 from shadowsocks.crypto import m2, rc4_md5, salsa20_ctr, \
     ctypes_openssl, ctypes_libsodium, table
 
-# 支持加密方式
+# 支持加密方式，以字典方式存储
 method_supported = {}
 method_supported.update(rc4_md5.ciphers)
 method_supported.update(salsa20_ctr.ciphers)
@@ -44,6 +44,7 @@ def try_cipher(key, method = None):
 def EVP_BytesToKey(password, key_len, iv_len):
     # equivalent to OpenSSL's EVP_BytesToKey() with count 1
     # so that we make the same key and iv as nodejs version
+    # OpenSSL中的EVP_BytesToKey()方法是等价的。所以使得key和iv的长度和nodejs版本一致
     if hasattr(password, 'encode'):
         password = password.encode('utf-8')
     cached_key = '%s-%d-%d' % (password, key_len, iv_len)

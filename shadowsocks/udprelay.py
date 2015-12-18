@@ -84,6 +84,7 @@ def client_key(a, b, c, d):
     return '%s:%s:%s:%s' % (a, b, c, d)
 
 # 我是先读tcprelay.py然后读udprelay.py，可以参考tcprelay的注释
+# udp比tcp协议更精简。毕竟是不可靠的报文
 class UDPRelay(object):
     def __init__(self, config, dns_resolver, is_local):
         self._config = config
@@ -337,6 +338,7 @@ class UDPRelay(object):
                 self._handle_client(sock)
 
         now = time.time()
+        # 超时 清理socket。
         if now - self._last_time > 3:
             self._cache.sweep()
             self._client_fd_to_server_addr.sweep()
