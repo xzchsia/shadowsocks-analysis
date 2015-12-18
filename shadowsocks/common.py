@@ -119,7 +119,7 @@ ADDRTYPE_IPV4 = 1
 ADDRTYPE_IPV6 = 4
 ADDRTYPE_HOST = 3
 
-
+# 打包成shadowvpn的专用的地址header
 def pack_addr(address):
     address_str = to_str(address)
     for family in (socket.AF_INET, socket.AF_INET6):
@@ -139,7 +139,7 @@ def pack_addr(address):
     # 把 ADDRTYPE_HOST = 3 封包到数据首部
     return b'\x03' + chr(len(address)) + address
 
-# 传递header，判断三种模式：ipv4 ipv6 地址模式
+# 处理header数据包，判断三种模式：ipv4 ipv6 地址模式
 # 返回四个值：地址类型，地址，端口，header长度
 def parse_header(data):
     # 返回ascii值

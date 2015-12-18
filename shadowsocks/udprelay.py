@@ -103,6 +103,7 @@ class UDPRelay(object):
         self._method = config['method']
         self._timeout = config['timeout']
         self._is_local = is_local
+        # 这个字典是lrucache，存放callback。
         self._cache = lru_cache.LRUCache(timeout = config['timeout'],
                                          close_callback = self._close_client)
         self._client_fd_to_server_addr = \
@@ -110,6 +111,7 @@ class UDPRelay(object):
         self._eventloop = None
         self._closed = False
         self._last_time = time.time()
+        # set集合，用于存放fielno()，见_handle_server()方法
         self._sockets = set()
 
         addrs = socket.getaddrinfo(self._listen_addr, self._listen_port, 0,
@@ -143,16 +145,18 @@ class UDPRelay(object):
             # just an address
             pass
 
-    # 发到自己bind的端口的udp请求
-    # 就只有可能是对方主动发送过来的，自己发送出去的udp请求要新建一个socket用来处理之后的请求
+    # 作为server的处理函数，包括【本地端收到进程的udp】和【服务端收到本地端发送的加密udp】
+    # 对于local，得到的是本地监听1080的数据，要加密后向服务端发
+    # 对于服务端，得到的是本地发送的已加密数据，解密后向dest直接发送
     def _handle_server(self):
         server = self._server_socket
         # r_addr是发送者的地址
         data, r_addr = server.recvfrom(BUF_SIZE)
         if not data:
             logging.debug('UDP handle_server: data is empty')
+            
+        # 若本地端从监听1080端口收到本机应用进程（例如chrome）的数据，进行切除header
         if self._is_local:
-            # 如果是local收到，那就是
             # ord:输入char返回Ascii
             frag = common.ord(data[2])
             # this is no classic UDP
@@ -173,13 +177,14 @@ class UDPRelay(object):
                 # |  1   | Variable |    2     | Variable |
                 # +------+----------+----------+----------+
                 # 就是shadowsocks那段
+                
+        # 如果是服务端收到本地端发出的udp数据，先进行解密
         else:
-            # 如果是远程收到
-            data = encrypt.encrypt_all(self._password, self._method, 0, data)
-            # decrypt data
+            data = encrypt.encrypt_all(self._password, self._method, 0, data)            
             if not data:
                 logging.debug('UDP handle_server: data is empty after decrypt')
                 return
+        # 处理header
         header_result = parse_header(data)
         if header_result is None:
             return
@@ -190,10 +195,12 @@ class UDPRelay(object):
             server_addr, server_port = self._get_a_server()
         else:
             # 如果远程收到，则将server_addr这些改成dest_addr dest_port，方便操作
+            # dest就是最终目标，例如 www.youtube.com:443
             server_addr, server_port = dest_addr, dest_port
-
+        # r_addr[]是接收到的数据
         key = client_key(r_addr[0], r_addr[1], dest_addr, dest_port)
         client = self._cache.get(key, None)
+        # 若callback字典中没有相关记录，进行注册字典
         if not client:
             # TODO async getaddrinfo
             # 根据server_addr, server_port等的类型决定选用的协议类型
@@ -204,7 +211,6 @@ class UDPRelay(object):
                 af, socktype, proto, canonname, sa = addrs[0]
                 # 根据上面的server_addr, server_port建立相应的连接，一环扣一环
                 # 这里是主动发出请求，所以要新建一个socket
-
                 # 这里根据上面得到的不同的端口类型就新建不同类型的socket：用于tcp的和同于udp的
                 client = socket.socket(af, socktype, proto)
                 client.setblocking(False)
@@ -213,22 +219,29 @@ class UDPRelay(object):
             else:
                 # drop
                 return
+            # sockets是一个set集合
             self._sockets.add(client.fileno())
+            # 添加进Eventloop，标志设置为可读
             self._eventloop.add(client, eventloop.POLL_IN)
-
+        
+        # 如果是local，要向远程发，要过墙，所以要加密
         if self._is_local:
-            # 如果是local，要向远程发，要过墙，所以要加密
             data = encrypt.encrypt_all(self._password, self._method, 1, data)
             if not data:
                 return
+        # 如果是远程，要向dest发请求，所以把除数据的部分除去，即除去header。
         else:
-            # 如果是远程，要向dest发请求，所以把除数据的部分除去
+            # data已经在上面进行数据解密了。不需要像local一样加密发送。
+            # data已经被切除头的3个字节了
             data = data[header_length:]
+
         if not data:
             return
+        
         try:
             # 发送，完美无瑕。。。。
             # 这个sendto同时有udp的和tcp的两种，sendto函数主要用于UDP，但这里两种都用了
+            # 调用sendto时候会自动加上那个首3个字节，貌似是x00 x00 x00
             client.sendto(data, (server_addr, server_port))
         except IOError as e:
             err = eventloop.errno_from_exception(e)
@@ -237,6 +250,7 @@ class UDPRelay(object):
             else:
                 logging.error(e)
 
+    # 作为local的处理函数，包括【服务端收到dest（例如youtube）发送的udp】和【本地端收到服务端发来的加密udp】
     # 对于local，得到的是远程的相应，要往客户端发
     # 对于远程，得到的是dest的响应，要往local发
     def _handle_client(self, sock):
@@ -244,18 +258,23 @@ class UDPRelay(object):
         if not data:
             logging.debug('UDP handle_client: data is empty')
             return
-        # 如果是远程
+        # 如果是服务端接收到的udp，（例如来自youtube）
         if not self._is_local:
             addrlen = len(r_addr[0])
+            # 域名规范：域名不能超过255个字符。其中顶级域名不能超过63字符
             if addrlen > 255:
                 # drop
                 return
+            # pack_addr(r_addr[0])：把r_addr[0]打包成shadowvpn的专用的地址header，追加到r_addr[0]头部。
+            # struct.pack('>H', r_addr[1])：打包成Big-Endian格式
             data = pack_addr(r_addr[0]) + struct.pack('>H', r_addr[1]) + data
-            # 加密内容
+            # 加密
             response = encrypt.encrypt_all(self._password, self._method, 1,
                                            data)
             if not response:
                 return
+            
+        # 本地端收到服务端发来的加密udp
         else:
             # 解密
             data = encrypt.encrypt_all(self._password, self._method, 0,
@@ -266,21 +285,21 @@ class UDPRelay(object):
             if header_result is None:
                 return
             # addrtype, dest_addr, dest_port, header_length = header_result
+            # 还原为标准的udp数据报格式，加上首3个字节
             response = b'\x00\x00\x00' + data
+            # data: raw data
+            # +------+----------+----------+----------+
+            # | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            # +------+----------+----------+----------+
+            # |  1   | Variable |    2     | Variable |
+            # +------+----------+----------+----------+
+            # response: true udp packet
+            # +----+------+------+----------+----------+----------+
+            # |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            # +----+------+------+----------+----------+----------+
+            # | 2  |  1   |  1   | Variable |    2     | Variable |
+            # +----+------+------+----------+----------+----------+
 
-# 两个报文差3个字节的数据怎么办？加上去！客户端是有构造和识别SOCK5报文的能力的
-# +----+------+------+----------+----------+----------+
-# |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
-# +----+------+------+----------+----------+----------+
-# | 2  |  1   |  1   | Variable |    2     | Variable |
-# +----+------+------+----------+----------+----------+
-# +------+----------+----------+----------+
-# | ATYP | DST.ADDR | DST.PORT |   DATA   |
-# +------+----------+----------+----------+
-# |  1   | Variable |    2     | Variable |
-# +------+----------+----------+----------+
-
-            # 这里是真正的数据 
         client_addr = self._client_fd_to_server_addr.get(sock.fileno())
         if client_addr:
             # 同样的，完美无瑕。。
@@ -290,6 +309,7 @@ class UDPRelay(object):
             # simply drop that packet
             pass
 
+    # 下面的添加到Eventloop跟tcprelay.py中的是大致相同的，少了某些可靠性的函数，符合udp传输的特性。
     def add_to_loop(self, loop):
         if self._eventloop:
             raise Exception('already add to loop')
