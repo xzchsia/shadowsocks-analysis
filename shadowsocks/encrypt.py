@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+# -*- coding: utf-8 -*-
 '''
 处理Shadowsocks协议的加密解密
 '''
