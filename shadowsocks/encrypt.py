@@ -37,6 +37,7 @@ def random_string(length):
 cached_keys = {}
 
 # 这个函数下文没有用到
+# 主要是在local.py和server.py里面用到。
 def try_cipher(key, method = None):
     Encryptor(key, method)
 

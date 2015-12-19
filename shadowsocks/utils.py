@@ -76,7 +76,7 @@ def check_config(config):
                       'config.json!')
         exit(1)
 
-
+# 获取config.json里面的参数，返回一个字典
 def get_config(is_local):
     logging.basicConfig(level = logging.INFO,
                         format = '%(levelname)-s: %(message)s')

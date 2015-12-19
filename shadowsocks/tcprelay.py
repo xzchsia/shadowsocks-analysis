@@ -860,6 +860,7 @@ class TCPRelay(object):
                 self._eventloop.remove_handler(self._handle_events)
 
     # next_tick是什么滴嗒，立即关闭server_socket吗？
+    # next_tick是连累标志，用于异常状况下强心关闭socket
     def close(self, next_tick = False):
         self._closed = True
         if not next_tick:
