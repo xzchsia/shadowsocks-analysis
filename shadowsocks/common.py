@@ -47,7 +47,8 @@ def to_str(s):
             return s.decode('utf-8')
     return s
 
-# 将网络地址转成二进制(v4 + v6)，而且返回的是utf-8格式的
+# 将二进制地址转成点分形式的地址(v4 + v6)，而且返回的是utf-8格式的
+# 含义：ntop就是 network to point点分形式
 def inet_ntop(family, ipstr):
     # ipv4
     if family == socket.AF_INET:
@@ -56,21 +57,23 @@ def inet_ntop(family, ipstr):
     # ipv6
     elif family == socket.AF_INET6:
         import re
-        # zip函数返回一个tuple
+        # ':'.join() 读取一个列表，返回以“：”分隔的一个字符串
         # %02X 宽度2的十六进制格式化
         # lstrip()函数是移除前导字符，例如'0'
-        # ipstr[::2]表示从第一个字母开始，读取每2个字符，返回字符串分隔
+        # ipstr[::2]表示从第一个字母开始，读取每2个字符
+        # zip函数返回一个tuple
         v6addr = ':'.join(('%02X%02X' % (ord(i), ord(j))).lstrip('0')
                           for i, j in zip(ipstr[::2], ipstr[1::2]))
         # re.sub()是替换函数，只替换一次：count=1
         v6addr = re.sub('::+', '::', v6addr, count = 1)
         return to_bytes(v6addr)
 
-# 将二进制转成网络地址(v4 + v6)
+# 将点分形式的ip转成二进制地址(v4 + v6)，返回的是二进制流
+# 含义：pton就是 point点分形式 to network
 def inet_pton(family, addr):
     addr = to_str(addr)
     if family == socket.AF_INET:
-        # 将ipv4二进制返回成网络地址。
+        # 将ipv4点分形式转成32位二进制地址。
         return socket.inet_aton(addr)
     elif family == socket.AF_INET6:
         if '.' in addr:    # a v4 addr
