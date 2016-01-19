@@ -106,7 +106,8 @@ def inet_pton(family, addr):
     else:
         raise RuntimeError("What family?")
 
-# 这个patch是干嘛的/
+# 这个patch是干嘛的: 
+# 判断python属性中是否有自带的ip地址格式转换函数。没有的话可以指定使用作者自定义的函数
 def patch_socket():
     if not hasattr(socket, 'inet_pton'):
         socket.inet_pton = inet_pton

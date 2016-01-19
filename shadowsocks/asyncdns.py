@@ -30,11 +30,11 @@ CACHE_SWEEP_INTERVAL = 30
 # 锚点：末尾
 # 来自：http://stackoverflow.com/questions/2532053/validate-a-hostname-string
 VALID_HOSTNAME = re.compile(br"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
+# 使用正则表达式的complie能更高效率。在匹配成千上万个字符串时候，使用complie函数速度更快
 
 common.patch_socket()
 
-# rfc1035
-# format
+# rfc1035定义：DNSformat
 # +---------------------+
 # |        Header       |
 # +---------------------+
@@ -47,9 +47,8 @@ common.patch_socket()
 # |      Additional     | RRs holding additional information
 # +---------------------+
 #
-# header
 # 
-# 
+# header数据格式
 # 这里一行16个位，就是两个字节
 #                                 1  1  1  1  1  1
 #   0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
@@ -75,7 +74,7 @@ QTYPE_A = 1    # A记录：WEB服务器的IP指向
 QTYPE_AAAA = 28    # IPV6解析记录
 QTYPE_CNAME = 5    # CNAME (Canonical Name)记录，通常称别名解析
 QTYPE_NS = 2    # NS（Name Server）记录是域名服务器记录
-QCLASS_IN = 1
+QCLASS_IN = 1    # 规定就是0x01
 
 # 构造dns请求的目标hostname，返回一个二进制流
 # 对每逗号前的字符串打包一次，append进result
@@ -88,12 +87,24 @@ def build_address(address):
         l = len(label)
         if l > 63:    # hostname太长
             return None
-        results.append(common.chr(l))    # 这个l对应的ascii是什么意思
+        # result分别追加数据：逐级域名的长度，逐级域名的字符串
+        results.append(common.chr(l))
         results.append(label)
     results.append(b'\0')
     return b''.join(results)
 
-# 构造一个dns查询的header请求。
+# rfc1035
+# dns questions
+#                                 1  1  1  1  1  1
+#   0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# |                      QNAME                    | -- a sequence of labels, where each label consists of a length octet followed by that number of octets.
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# |                      QTYPE                    | -- 前面已经定义的QTYPE_A。。等
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# |                      QCLASS                   | -- 0x01
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 构造一个dns查询的DNS QuestionS请求。
 # 参数：address为域名，qtype为查询类型，id为查询id
 def build_request(address, qtype, request_id):
     # pack的‘！’表示结构体打包为网络顺序
@@ -103,7 +114,7 @@ def build_request(address, qtype, request_id):
     return header + addr + qtype_qclass
 
 # 分析ip数据包，返回一个ip地址，点分格式
-# TODO 参数：data为什么类型
+# TODO 参数：data是什么类型
 def parse_ip(addrtype, data, length, offset):
     if addrtype == QTYPE_A:
 #         htons() host to network short
@@ -111,9 +122,9 @@ def parse_ip(addrtype, data, length, offset):
 #         ntohs() network to host short
 #         ntohl() network to host long
 #         转换32位打包的IPV4地址为IP地址的标准点号分隔字符串表示。
-#         socket.inet_pton(address_family,ip_string)
-#         转换IP地址字符串为打包二进制格式。地址家族为AF_INET和AF_INET6，它们分别表示IPV4和IPV6。
 #         socket.inet_ntop(address_family,packed_ip)
+#         转换IP地址字符串为打包二进制格式。地址家族为AF_INET和AF_INET6，它们分别表示IPV4和IPV6。
+#         socket.inet_pton(address_family,ip_string)
         return socket.inet_ntop(socket.AF_INET, data[offset:offset + length])
     elif addrtype == QTYPE_AAAA:
         return socket.inet_ntop(socket.AF_INET6, data[offset:offset + length])
@@ -122,35 +133,72 @@ def parse_ip(addrtype, data, length, offset):
     else:
         return data[offset:offset + length]
 
-# 递归函数：处理别名记录,看不懂。参考rfc1035
-# 返回一个长度，别名的二进制流
+
+# 这里面涉及到DNS压缩指针的实现，参考rfc1035的“DNS Packet Compression”
+# 例如，域名F.ISI.ARPA 和 FOO.F.ISI.ARPA 和 ARPA 可以打包为如下数据QNAME流（忽略其他报文段）
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# O  +                    +                       +
+# F  +                    +                       +
+# F  +                    +                       +
+# S  +     BYTE0          +        BYTE1          +
+# E  +                    +                       +
+# T  +                    +                       +
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 20 |         1          |            F          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 22 |         3          |            I          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 24 |         S          |            I          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 26 |         4          |            A          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 28 |         R          |            P          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 30 |         A          |            0          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# ......
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 40 |         3          |            F          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 42 |         0          |            0          |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 44 | 1 1 |                 20                   |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# ......
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+# 64 | 1 1 |                 26                   |
+# +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+
+# 处理dns的Qname报文，返回一个元组（长度，别名）的二进制流，遇到压缩指针则递归
 def parse_name(data, offset):
     p = offset
     labels = []
-    # l为偏置offset的数据
+    # l为data数据流中的偏置offset的label的长度
     l = common.ord(data[p])
     while l > 0:
-        # 为什么是128+64
+        # 为什么是128+64, 因为未经压缩的合法name长度在63内，因此
+        # rfc定义0x11000000B为压缩指针的标志
         if (l & (128 + 64)) == (128 + 64):
-            # 定义指针
+            # 取出指针的位置
             pointer = struct.unpack('!H', data[p:p + 2])[0]
-            # 指针取无符号2字节
+            # 指针取两个字节减去高两位（用于标志0x11000000B那两位）
             pointer &= 0x3FFF
-            # 递归自身处理记录
+            # 递归处理指针，找到上文的name记录，参考rfc1035
             r = parse_name(data, pointer)
-            # 追加数据
+            # 读取指针所指的数据，追加到labels中
             labels.append(r[1])
-            # 指针偏移自增两个字节
+            # 指针偏移自增两个字节（跳过0x11000000B所在的两个字节的data数据段）
             p += 2
-            # 指针到末尾（递归结束条件）
+            # 递归返回
             return p - offset, b'.'.join(labels)
+        # 若不是指针压缩，直接追加dns报文
         else:
             # 追加labels
             labels.append(data[p + 1:p + 1 + l])
-            # 指针自增（递归的一般条件）
+            # 指针自增（1+len）
             p += 1 + l
         l = common.ord(data[p])
-    # 递归结束：l=0:
+    # 递归返回
     return p - offset + 1, b'.'.join(labels)
 
 

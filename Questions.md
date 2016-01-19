@@ -2,16 +2,17 @@ shadowsocks2.6源码阅读_201512,使用了带有注释的版本
 
 asyncdns.py
 
-	1. 对于re.complie函数还是一窍不通啊。初始化前几行用到了compile
+	1. ~~对于re.complie函数还是一窍不通啊。初始化前几行用到了compile~~
+	2. ~~def build_address(address)函数中的results.append(common.chr(l)) #这个l对应的ascii是什么意思~~
+	3. ~~parse_name(data, offset)这个函数原理，，中的if (l & (128 + 64)) == (128 + 64):是什么意思~~
+	4. class DNSResolver(object)中的hostname to callback 和 callback to hostname有什么区别，对回调这几段，完全看不懂作者的用意。
 
 
 common.py
 
-	1. def inet_pton(family, addr):这个函数把ipv6地址转成二进制时候首先判断ipv6是否是一个含有v4地址，这部分看不懂
-	2. def patch_socket():这个补丁是干啥的
-	3. def build_address(address)函数中的results.append(common.chr(l)) #这个l对应的ascii是什么意思
-	4. parse_name(data, offset)这个函数原理，，中的if (l & (128 + 64)) == (128 + 64):是什么意思
-	5. class DNSResolver(object)中的hostname to callback 和 callback to hostname有什么区别，对回调这几段，完全看不懂作者的用意。
+	1. ~~def inet_pton(family, addr):这个函数把ipv6地址转成二进制时候首先判断ipv6是否是一个含有v4地址，这部分看不懂~~
+	2. ~~def patch_socket():这个补丁是干啥的~~
+
 
 daemon.py
 

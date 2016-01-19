@@ -74,6 +74,13 @@
     然后去找_time_to_keys，找出所有可能过期的键
     因为最早访问时间访问过的键之后可能又访问了，所以要_keys_to_last_time
     找出那些没被访问过的，然后删除
+    
+#### 其他
+
+出现了一些有意思的代码，目的是兼容python3标准，我以前没有注意到的
+- 每一个py文件前面都有导入3.x的package:  __future__  ，如果使用print "hello"，会提示出错，因此使用print("hello")
+- 给字符串赋值时，总是带有一个前缀'b'，比如：v4addr=b'8.8.4.4'，是为了兼容py3标准，[参考这里](http://stackoverflow.com/questions/6269765/what-does-the-b-character-do-in-front-of-a-string-literal)
+- 
 
 * * *
 
