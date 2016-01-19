@@ -1,17 +1,18 @@
 shadowsocks2.6源码阅读_201512,使用了带有注释的版本
+总体上，不太了解时间循环的工作流程，状态机的转换，还有上下行的方向变化，dirty的判断
 
 asyncdns.py
 
-	1. ~~对于re.complie函数还是一窍不通啊。初始化前几行用到了compile~~
-	2. ~~def build_address(address)函数中的results.append(common.chr(l)) #这个l对应的ascii是什么意思~~
-	3. ~~parse_name(data, offset)这个函数原理，，中的if (l & (128 + 64)) == (128 + 64):是什么意思~~
+	1. [SOLVED]对于re.complie函数还是一窍不通啊。初始化前几行用到了compile
+	2. [SOLVED]def build_address(address)函数中的results.append(common.chr(l)) #这个l对应的ascii是什么意思
+	3. [SOLVED]parse_name(data, offset)这个函数原理，，中的if (l & (128 + 64)) == (128 + 64):是什么意思
 	4. class DNSResolver(object)中的hostname to callback 和 callback to hostname有什么区别，对回调这几段，完全看不懂作者的用意。
 
 
 common.py
 
-	1. ~~def inet_pton(family, addr):这个函数把ipv6地址转成二进制时候首先判断ipv6是否是一个含有v4地址，这部分看不懂~~
-	2. ~~def patch_socket():这个补丁是干啥的~~
+	1. [SOLVED]def inet_pton(family, addr):这个函数把ipv6地址转成二进制时候首先判断ipv6是否是一个含有v4地址，这部分看不懂
+	2. [SOLVED]def patch_socket():这个补丁是干啥的
 
 
 daemon.py
@@ -37,32 +38,32 @@ eventloop.py
 
 local.py
 
-	1. if hasattr(sys, "frozen") 这段py2exe初始检查代码的用意？
+	1. [SOLVE]if hasattr(sys, "frozen") 这段py2exe初始检查代码的用意？
 
 
 lru_cache.py
 
-	1. collections.deque还有mutablemapping容器不了解。
+	1. [SOLVE]collections.deque还有mutablemapping容器不了解。
 	2. LRUCache类的初始化函数形参中的close_callback函数用法，是关闭回调函数吧
 
 
 server.py
 
-	1. workers是什么东西，"It only works on unix/linux"
+	1. [SOLVE]workers是什么东西，"It only works on unix/linux"
 
 
 tcprelay.py
 
 	1. 在类TCPRelayHandler里面，loop的定义在哪里，怎么就有一个add方法？
 	2. 在类TCPRelayHandler里面，_update_stream函数，检查状态是否被改变，只在dirty时候更新，什么意思
-	3. @property这个@符号用于什么情况的python里面？
+	3. [SOLVE]@property这个@符号用于什么情况的python里面？
 	4. if now - handler.last_activity < TIMEOUT_PRECISION:这个last_activity定义啥了
 	6. log级别是怎么显示出来的，平常都是INFO级别的消息？logging.log(utils.VERBOSE_LEVEL,)
 	
 
 udprelay.py
 
-	1. 多次见到getaddrinfo函数，返回的proto是什么意思。
+	1. [SOLVE]多次见到getaddrinfo函数，返回的proto是什么意思。
 
 
 utils.py

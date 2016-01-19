@@ -453,6 +453,7 @@ class TCPRelayHandler(object):
                                 pass
                         self._loop.add(remote_sock,
                                        eventloop.POLL_ERR | eventloop.POLL_OUT)
+                        # 状态机转为连接中
                         self._stage = STAGE_CONNECTING
                         self._update_stream(STREAM_UP, WAIT_STATUS_READWRITING)
                         self._update_stream(STREAM_DOWN, WAIT_STATUS_READING)
@@ -684,14 +685,17 @@ class TCPRelay(object):
             listen_port = config['server_port']
         self._listen_port = listen_port
 
+        # 下面加上了检查getaddrinfo的有效性，太周到了
         # getaddrinfo returns (family, type, proto, canonname, sockaddr)
         addrs = socket.getaddrinfo(listen_addr, listen_port, 0,
                                    socket.SOCK_STREAM, socket.SOL_TCP)
+        # 若端口无法正常工作
         if len(addrs) == 0:
             raise Exception("can't get addrinfo for %s:%d" % 
                             (listen_addr, listen_port))
 
         af, socktype, proto, canonname, sa = addrs[0]
+        # 建立端口
         server_socket = socket.socket(af, socktype, proto)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # sa is a tuple (addr, port)
@@ -728,7 +732,7 @@ class TCPRelay(object):
 
     # 移除服务函数，超时值使用哈希值存放在字典中
     def remove_handler(self, handler):
-        # if not found, returns -1
+        # if not found, the default return value is -1
         index = self._handler_to_timeouts.get(hash(handler), -1)
         # founded
         if index >= 0:

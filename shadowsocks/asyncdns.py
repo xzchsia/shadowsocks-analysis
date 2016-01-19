@@ -349,7 +349,7 @@ def is_ip(address):
             pass
     return False
 
-# 输入二进制流返回判断是否一个有效主机名
+# 是否一个有效主机名
 def is_valid_hostname(hostname):
     if len(hostname) > 255:
         return False
@@ -359,7 +359,7 @@ def is_valid_hostname(hostname):
     # 该表达式是clowwidny从stackflow爬下来的。。。
     return all(VALID_HOSTNAME.match(x) for x in hostname.split(b'.'))
 
-# 类：DnsResp.
+# 类：DnsResponse.
 class DNSResponse(object):
     def __init__(self):
         self.hostname = None
@@ -382,14 +382,17 @@ class DNSResolver(object):
         self._hosts = {}
         # 查询状态？
         self._hostname_status = {}
+        # --------------------------------------------------
         # hostname to callback 和 callback to hostname有什么区别>>>>参考本文件末尾的def resolve函数。
         # hostname to callback就是每一个hostname对应一个回调函数
         # 若多个函数对应相同的hostname，只需向远端发起一次dns请求，减少重复查询
         # 删除重复键值(key=hostname,value=callback)的操作不需要人为干预，字典完成这个功能（key不允许重复）
         self._hostname_to_cb = {}
+        # --------------------------------------------------
         # callback to hostname就是一个回调函数对应一个hostname
         # 一个hostname有可能是由多个进程调用查询dns的。因此回朔时候也要逐个返回。
         self._cb_to_hostname = {}
+        # --------------------------------------------------
         # todo : 阅lrucache的源码
         self._cache = lru_cache.LRUCache(timeout = 300)
         self._last_time = time.time()
@@ -582,6 +585,7 @@ class DNSResolver(object):
             self._sock.sendto(req, (server, 53))
 
     # 解析dns函数。被tcprelay模块调用。
+    # callback对应一个上一级的事件循环函数
     def resolve(self, hostname, callback):    # 在tcprelay模块中，callback函数指向tcp类的_handle_dns_resolved()
         # hostname是否是字节码
         if type(hostname) != bytes:
@@ -646,6 +650,7 @@ def test():
             # TODO: what can we assert?
             print(result, error)
             counter += 1
+            # 下文测试样例就是9个，可以自己修改
             if counter == 9:
                 loop.remove_handler(dns_resolver.handle_events)
                 dns_resolver.close()
