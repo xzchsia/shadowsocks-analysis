@@ -62,13 +62,13 @@ def numpy_xor(a, b):
     elif len(a) % 2 == 0:
         dtype = numpy.uint16
 
-    ab = numpy.frombuffer(a, dtype=dtype)
-    bb = numpy.frombuffer(b, dtype=dtype)
+    ab = numpy.frombuffer(a, dtype = dtype)
+    bb = numpy.frombuffer(b, dtype = dtype)
     c = numpy.bitwise_xor(ab, bb)
     r = c.tostring()
     return r
 
-
+# 返回两个字符串异或值
 def py_xor_str(a, b):
     c = []
     if bytes == str:
@@ -84,41 +84,54 @@ def py_xor_str(a, b):
 class Salsa20Cipher(object):
     """a salsa20 CTR implemetation, provides m2crypto like cipher API"""
 
-    def __init__(self, alg, key, iv, op, key_as_bytes=0, d=None, salt=None,
-                 i=1, padding=1):
+    def __init__(self, alg, key, iv, op, key_as_bytes = 0, d = None, salt = None,
+                 i = 1, padding = 1):
+        # 导入numpy
         run_imports()
         if alg != b'salsa20-ctr':
             raise Exception('unknown algorithm')
         self._key = key
+        # little-endian解包出int64型作为nonce，nonce的作用是一个不重复的值，配合key使用。
         self._nonce = struct.unpack('<Q', iv)[0]
         self._pos = 0
         self._next_stream()
 
     def _next_stream(self):
+        # 再次确保nonce是64位
         self._nonce &= 0xFFFFFFFFFFFFFFFF
+        # BLOCK_SIZE: 16384 Bytes
+        # self._stream是加密后的数据
         self._stream = salsa20.Salsa20_keystream(BLOCK_SIZE,
                                                  struct.pack('<Q',
-                                                             self._nonce),
+                                                             self._nonce),    # 将key和nonce连接
                                                  self._key)
+        # counter模式，自增。
         self._nonce += 1
 
     def update(self, data):
         results = []
         while True:
+            # 剩下的未加密数据流长度
             remain = BLOCK_SIZE - self._pos
             cur_data = data[:remain]
             cur_data_len = len(cur_data)
+            # 当前一轮的加密后的数据存放在cur_stream
             cur_stream = self._stream[self._pos:self._pos + cur_data_len]
             self._pos = self._pos + cur_data_len
+            # 切掉已经加密的数据明文前面部分
             data = data[remain:]
-
+            # 加上已经加密的密文
             results.append(numpy_xor(cur_data, cur_stream))
 
+            # 这个是并发执行的，连续对不同的BLOCK的数据加密，速度较快
             if self._pos >= BLOCK_SIZE:
                 self._next_stream()
                 self._pos = 0
+            # 没有数据可以加密
             if not data:
                 break
+            
+        # 返回二进制的result
         return b''.join(results)
 
 

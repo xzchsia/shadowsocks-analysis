@@ -70,3 +70,8 @@ utils.py
 
 	1. optlist, args = getopt.getopt(sys.argv[1:], shortopts, longopts)这个函数是实现原理是？
 
+以下部分是cipher部分
+
+salsa20_ctr.py
+
+	1. 导入numpy包，导入
